@@ -1,0 +1,41 @@
+# Environment files
+**/.env
+**/.env.*
+!.env.example
+!.env.sample
+
+# Sensitive/local folders
+/Ideation/
+
+# Node / frontend
+node_modules/
+**/node_modules/
+.next/
+out/
+coverage/
+build/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.log
+
+# Secrets / certificates
+*.pem
+*.key
+*.crt
+*.p12
+*.sqlite3
+*.db

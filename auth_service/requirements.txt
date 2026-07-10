@@ -1,0 +1,19 @@
+# Web framework + server
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+
+# Django — used ONLY for ORM and migrations, not for views
+django==5.0.4
+psycopg2-binary==2.9.9      # PostgreSQL driver
+
+# JWT token creation and verification
+python-jose[cryptography]==3.3.0
+
+# Password hashing
+bcrypt==4.0.1
+
+# Environment variable loading
+python-dotenv==1.0.1
+
+# Request body parsing (FastAPI uses this internally)
+python-multipart==0.0.9
