@@ -7,7 +7,7 @@ A production-grade microservices e-commerce platform built for learning distribu
 ---
 
 ## Architecture Overview
-
+```
 ┌───────────────────────────────────────────────────────────────┐
 │                       Next.js Frontend                        │
 │                  (TypeScript + Tailwind CSS)                  │
