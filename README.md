@@ -90,7 +90,7 @@ A production-grade microservices e-commerce platform built for learning distribu
 ## Project Structure
 
 ```
-ZIPDROP/
+VOLTEX/
 ├── auth_service/
 ├── product_service/
 ├── order_service/
