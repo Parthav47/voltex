@@ -141,10 +141,6 @@ def checkout_order(
     body: CheckoutRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """
-    Convert cart to order and initiate payment.
-    Returns razorpay_order_id for frontend to open payment popup.
-    """
     shipping_data = {
         "shipping_name": body.shipping_name,
         "shipping_address_line1": body.shipping_address_line1,
@@ -156,10 +152,10 @@ def checkout_order(
     }
 
     try:
-        result = checkout(user_id, shipping_data)
+        result = checkout(user_id, shipping_data, body.payment_method)
         return CheckoutEnvelope(
             data=result,
-            message="Order created. Proceed to payment.",
+            message="Order created successfully.",
         )
     except EmptyCartError as e:
         raise HTTPException(status_code=400, detail={"error": {"code": "EMPTY_CART", "message": str(e)}})

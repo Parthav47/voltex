@@ -68,14 +68,22 @@ class Order(models.Model):
     A confirmed purchase — created at checkout, permanent record.
 
     Status lifecycle:
-      pending → paid → shipped → delivered
-      pending → failed (payment failed)
-      pending → cancelled (user cancelled before payment)
+      COD:    pending → confirmed → shipped → delivered
+      Online: pending → paid → shipped → delivered
+      Either: pending → failed (payment failed)
+              pending → cancelled (user cancelled before payment)
+
+    payment_method determines which lifecycle applies.
+    COD skips the payment step entirely — goes straight to confirmed.
     """
 
-    # All valid status values — using constants prevents typos in code
+    # ──────────────────────────────────────────────
+    # Status constants — use these instead of raw strings
+    # e.g. Order.STATUS_PAID not "paid" — prevents typos
+    # ──────────────────────────────────────────────
     STATUS_PENDING = "pending"
-    STATUS_PAID = "paid"
+    STATUS_CONFIRMED = "confirmed"   # COD only — order confirmed, awaiting shipment
+    STATUS_PAID = "paid"             # Online only — payment captured by Razorpay
     STATUS_SHIPPED = "shipped"
     STATUS_DELIVERED = "delivered"
     STATUS_FAILED = "failed"
@@ -83,6 +91,7 @@ class Order(models.Model):
 
     STATUS_CHOICES = [
         (STATUS_PENDING, "Pending"),
+        (STATUS_CONFIRMED, "Confirmed"),
         (STATUS_PAID, "Paid"),
         (STATUS_SHIPPED, "Shipped"),
         (STATUS_DELIVERED, "Delivered"),
@@ -90,23 +99,57 @@ class Order(models.Model):
         (STATUS_CANCELLED, "Cancelled"),
     ]
 
+    # ──────────────────────────────────────────────
+    # Payment method constants
+    # ──────────────────────────────────────────────
+    PAYMENT_COD = "cod"
+    PAYMENT_ONLINE = "online"
+
+    PAYMENT_METHOD_CHOICES = [
+        (PAYMENT_COD, "Cash on Delivery"),
+        (PAYMENT_ONLINE, "Online"),
+    ]
+
+    # ──────────────────────────────────────────────
+    # Core fields
+    # ──────────────────────────────────────────────
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # No ForeignKey — User lives in auth_service DB, not here.
+    # We trust the JWT to give us user_id. No cross-service DB join.
     user_id = models.UUIDField(db_index=True)
 
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
         default=STATUS_PENDING,
-        db_index=True,   # index because we filter by status frequently
+        db_index=True,  # indexed — we filter orders by status frequently
     )
 
-    # Total frozen at checkout time — not recalculated later
-    # Protects against price changes affecting historical orders
+    # Which payment method the user chose at checkout.
+    # Determines the status lifecycle and whether Payment service is called.
+    payment_method = models.CharField(
+        max_length=10,
+        choices=PAYMENT_METHOD_CHOICES,
+        default=PAYMENT_ONLINE,
+    )
+
+    # ──────────────────────────────────────────────
+    # Financial fields
+    # ──────────────────────────────────────────────
+
+    # Frozen at checkout — never recalculated.
+    # If the product price changes tomorrow, this order still
+    # reflects what the customer actually agreed to pay.
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
 
-    # Shipping address — frozen at checkout time
-    # Stored on the order directly, not referenced from a user profile
-    # Because users can change their address but orders must remember where they shipped
+    # ──────────────────────────────────────────────
+    # Shipping address — frozen snapshot at checkout time
+    # ──────────────────────────────────────────────
+    # Stored directly on the order, not as a FK to a user address.
+    # Why? Users can update their address later — but this order
+    # must permanently record WHERE it was supposed to be delivered.
+    # Denormalization is intentional and correct here.
     shipping_name = models.CharField(max_length=255)
     shipping_address_line1 = models.CharField(max_length=255)
     shipping_address_line2 = models.CharField(max_length=255, blank=True, default="")
@@ -115,14 +158,17 @@ class Order(models.Model):
     shipping_pincode = models.CharField(max_length=10)
     shipping_phone = models.CharField(max_length=15)
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    # ──────────────────────────────────────────────
+    # Timestamps
+    # ──────────────────────────────────────────────
+    created_at = models.DateTimeField(auto_now_add=True)  # set once on creation
+    updated_at = models.DateTimeField(auto_now=True)       # updated on every .save()
 
     class Meta:
         db_table = "orders"
 
     def __str__(self):
-        return f"Order {self.id} — {self.status}"
+        return f"Order {self.id} — {self.status} ({self.payment_method})"
 
 
 class OrderItem(models.Model):

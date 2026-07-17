@@ -7,6 +7,7 @@ from decimal import Decimal
 from datetime import datetime
 from uuid import UUID
 from typing import List, Optional
+from typing import Literal
 
 
 # ──────────────────────────────────────────────
@@ -150,3 +151,34 @@ class OrderListEnvelope(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+# ──────────────────────────────────────────────
+# Payment Method schemas
+# ──────────────────────────────────────────────
+
+class CheckoutRequest(BaseModel):
+    shipping_name: str
+    shipping_address_line1: str
+    shipping_address_line2: str = ""
+    shipping_city: str
+    shipping_state: str
+    shipping_pincode: str
+    shipping_phone: str
+    # New field — cod or online
+    payment_method: Literal["cod", "online"] = "online"
+
+    @field_validator("shipping_pincode")
+    @classmethod
+    def pincode_must_be_valid(cls, v: str) -> str:
+        if not v.isdigit() or len(v) != 6:
+            raise ValueError("Pincode must be 6 digits")
+        return v
+
+    @field_validator("shipping_phone")
+    @classmethod
+    def phone_must_be_valid(cls, v: str) -> str:
+        digits = v.replace("+", "").replace("-", "").replace(" ", "")
+        if not digits.isdigit() or len(digits) < 10:
+            raise ValueError("Invalid phone number")
+        return v

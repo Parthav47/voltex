@@ -181,26 +181,11 @@ def remove_cart_item(user_id: str, cart_item_id: str) -> None:
 # Checkout
 # ──────────────────────────────────────────────
 
-def checkout(user_id: str, shipping_data: dict) -> dict:
+def checkout(user_id: str, shipping_data: dict, payment_method: str = "online") -> dict:
     """
-    Convert a cart into a confirmed order.
-
-    This is the most critical function in the entire system.
-    It must be atomic — either everything succeeds or nothing does.
-
-    Steps inside the transaction:
-      1. Get cart and verify it has items
-      2. Fetch current product data from Product service
-      3. Verify stock is still available
-      4. Create Order row with shipping address
-      5. Create OrderItem rows with snapshot data
-      6. Delete the cart (it's been converted)
-
-    After the transaction:
-      7. Call Payment service to create Razorpay order
-         (outside transaction — payment is external, can't roll it back)
-
-    Returns razorpay_order_id for frontend to open payment popup.
+    Convert cart to order.
+    COD: order goes straight to confirmed, no payment needed.
+    Online: initiates Razorpay payment, returns razorpay_order_id.
     """
     cart = get_or_create_cart(user_id)
     items = list(cart.items.all())
@@ -208,9 +193,6 @@ def checkout(user_id: str, shipping_data: dict) -> dict:
     if not items:
         raise EmptyCartError("Cannot checkout with an empty cart")
 
-    # Fetch all product data before starting transaction
-    # We do this OUTSIDE the transaction to keep the transaction short
-    # Long transactions holding DB locks cause performance problems
     product_data = {}
     for item in items:
         try:
@@ -219,7 +201,6 @@ def checkout(user_id: str, shipping_data: dict) -> dict:
         except ProductServiceError as e:
             raise ProductUnavailableError(f"Product unavailable: {e}")
 
-    # Verify stock for all items before creating order
     for item in items:
         product = product_data[str(item.product_id)]
         if product["stock_count"] < item.quantity:
@@ -227,43 +208,50 @@ def checkout(user_id: str, shipping_data: dict) -> dict:
                 f"'{product['name']}': only {product['stock_count']} units available"
             )
 
-    # Calculate total
     total_amount = sum(
         Decimal(str(product_data[str(item.product_id)]["price"])) * item.quantity
         for item in items
     )
 
-    # Create order atomically — all or nothing
     with transaction.atomic():
         order = Order.objects.create(
             user_id=user_id,
-            status=Order.STATUS_PENDING,
+            status=Order.STATUS_CONFIRMED if payment_method == "cod" else Order.STATUS_PENDING,
+            payment_method=payment_method,
             total_amount=total_amount,
-            **shipping_data,  # unpack all shipping fields
+            **shipping_data,
         )
 
-        # Create order items with snapshot data
         for item in items:
             product = product_data[str(item.product_id)]
             OrderItem.objects.create(
                 order=order,
                 product_id=item.product_id,
-                product_name=product["name"],     # snapshot
-                product_sku=product["sku"],        # snapshot
+                product_name=product["name"],
+                product_sku=product["sku"],
                 quantity=item.quantity,
-                unit_price=Decimal(str(product["price"])),  # snapshot
+                unit_price=Decimal(str(product["price"])),
             )
 
-        # Delete cart — it's been converted to an order
         cart.delete()
 
-    # Update stock in Product service — outside transaction
+    # Decrement stock for both COD and online
     for item in items:
         product = product_data[str(item.product_id)]
         new_stock = product["stock_count"] - item.quantity
         decrement_stock(str(item.product_id), new_stock)
 
-        # Call Payment service to create Razorpay order
+    # COD — no payment needed, return immediately
+    if payment_method == "cod":
+        return {
+            "order_id": str(order.id),
+            "status": order.status,
+            "total_amount": str(total_amount),
+            "payment_method": "cod",
+            "razorpay_order_id": None,
+        }
+
+    # Online — call Payment service
     PAYMENT_SERVICE_URL = os.environ.get("PAYMENT_SERVICE_URL", "http://localhost:8004")
     INTERNAL_API_KEY = os.environ.get("INTERNAL_API_KEY", "")
 
@@ -280,17 +268,19 @@ def checkout(user_id: str, shipping_data: dict) -> dict:
         )
         payment_data = response.json()["data"]
         razorpay_order_id = payment_data["razorpay_order_id"]
+        razorpay_key_id = payment_data.get("razorpay_key_id", "")
     except Exception as e:
-        # Payment initiation failed — order exists but payment not started
-        # Frontend can retry payment using the order_id
         razorpay_order_id = None
+        razorpay_key_id = ""
         print(f"WARNING: Payment initiation failed: {e}")
 
     return {
         "order_id": str(order.id),
         "status": order.status,
         "total_amount": str(total_amount),
+        "payment_method": "online",
         "razorpay_order_id": razorpay_order_id,
+        "razorpay_key_id": razorpay_key_id,
     }
 
 
