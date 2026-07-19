@@ -242,7 +242,26 @@ def checkout(user_id: str, shipping_data: dict, payment_method: str = "online") 
         decrement_stock(str(item.product_id), new_stock)
 
     # COD — no payment needed, return immediately
+    # COD — publish event directly from Order service
     if payment_method == "cod":
+        try:
+            import redis as redis_client
+            import json
+            r = redis_client.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379"))
+            r.publish("payment_events", json.dumps({
+                "event": "payment_success",
+                "data": {
+                    "order_id": str(order.id),
+                    "payment_id": None,
+                    "amount": int(total_amount * 100),  # convert to paise
+                    "user_id": str(user_id),
+                    "user_email": "",   # we'll fix this next
+                    "user_name": "",
+                }
+            }))
+        except Exception as e:
+            print(f"WARNING: Failed to publish COD event: {e}")
+
         return {
             "order_id": str(order.id),
             "status": order.status,
@@ -250,6 +269,7 @@ def checkout(user_id: str, shipping_data: dict, payment_method: str = "online") 
             "payment_method": "cod",
             "razorpay_order_id": None,
         }
+
 
     # Online — call Payment service
     PAYMENT_SERVICE_URL = os.environ.get("PAYMENT_SERVICE_URL", "http://localhost:8004")
