@@ -181,7 +181,7 @@ def remove_cart_item(user_id: str, cart_item_id: str) -> None:
 # Checkout
 # ──────────────────────────────────────────────
 
-def checkout(user_id: str, shipping_data: dict, payment_method: str = "online") -> dict:
+def checkout(user_id: str, shipping_data: dict, payment_method: str = "online", user_email: str = "", user_name: str = "") -> dict:    
     """
     Convert cart to order.
     COD: order goes straight to confirmed, no payment needed.
@@ -253,12 +253,13 @@ def checkout(user_id: str, shipping_data: dict, payment_method: str = "online") 
                 "data": {
                     "order_id": str(order.id),
                     "payment_id": None,
-                    "amount": int(total_amount * 100),  # convert to paise
+                    "amount": int(total_amount * 100),
                     "user_id": str(user_id),
-                    "user_email": "",   # we'll fix this next
-                    "user_name": "",
+                    "user_email": user_email,
+                    "user_name": user_name,
                 }
             }))
+            print(f"COD event published for order {order.id}")
         except Exception as e:
             print(f"WARNING: Failed to publish COD event: {e}")
 

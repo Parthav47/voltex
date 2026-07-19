@@ -43,9 +43,11 @@ ALGORITHM = "HS256"
 # JWT dependency — same logic as Auth service
 # ──────────────────────────────────────────────
 
+    
 def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-) -> str:
+) -> dict:
+    
     """
     Extract and verify user_id from JWT.
 
@@ -53,7 +55,11 @@ def get_current_user_id(
     We do NOT call Auth service — that would add latency on every request.
     Since both services share SECRET_KEY, we can verify independently.
     This is why JWT is perfect for microservices.
+
+    Returns both user_id and email from JWT payload.
+    Email is embedded in the token — no Auth service call needed.
     """
+    
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -63,9 +69,10 @@ def get_current_user_id(
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
+        email = payload.get("email", "")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid token")
-        return user_id
+        return {"user_id": user_id, "email": email}
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -78,7 +85,8 @@ def get_current_user_id(
 # ──────────────────────────────────────────────
 
 @router.get("/cart", response_model=CartEnvelope)
-def get_cart(user_id: str = Depends(get_current_user_id)):
+def get_cart(user_info: dict = Depends(get_current_user_id)):
+    user_id = user_info["user_id"]
     cart_data = get_cart_with_items(user_id)
     return CartEnvelope(
         data=CartResponse(
@@ -93,8 +101,10 @@ def get_cart(user_id: str = Depends(get_current_user_id)):
 @router.post("/cart/items", response_model=AddToCartEnvelope, status_code=201)
 def add_item_to_cart(
     body: AddToCartRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_info: dict = Depends(get_current_user_id),
 ):
+    user_id = user_info["user_id"]
+    #user_email = user_info["email"]
     try:
         cart_item = add_to_cart(user_id, str(body.product_id), body.quantity)
         return AddToCartEnvelope(
@@ -111,8 +121,9 @@ def add_item_to_cart(
 def update_item_quantity(
     item_id: UUID,
     body: UpdateCartItemRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_info: dict = Depends(get_current_user_id),
 ):
+    user_id = user_info["user_id"]
     try:
         update_cart_item(user_id, str(item_id), body.quantity)
         return MessageResponse(message="Cart item updated")
@@ -123,8 +134,9 @@ def update_item_quantity(
 @router.delete("/cart/items/{item_id}", response_model=MessageResponse)
 def remove_item_from_cart(
     item_id: UUID,
-    user_id: str = Depends(get_current_user_id),
+    user_info: dict = Depends(get_current_user_id),
 ):
+    user_id = user_info["user_id"]
     try:
         remove_cart_item(user_id, str(item_id))
         return MessageResponse(message="Item removed from cart")
@@ -139,8 +151,12 @@ def remove_item_from_cart(
 @router.post("/checkout", response_model=CheckoutEnvelope, status_code=201)
 def checkout_order(
     body: CheckoutRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_info: dict = Depends(get_current_user_id),
 ):
+    user_id = user_info["user_id"]
+    user_email = user_info["email"]
+    user_name = body.shipping_name  # use shipping name as the display name
+
     shipping_data = {
         "shipping_name": body.shipping_name,
         "shipping_address_line1": body.shipping_address_line1,
@@ -152,7 +168,13 @@ def checkout_order(
     }
 
     try:
-        result = checkout(user_id, shipping_data, body.payment_method)
+        result = checkout(
+            user_id,
+            shipping_data,
+            body.payment_method,
+            user_email=user_email,
+            user_name=user_name,
+        )
         return CheckoutEnvelope(
             data=result,
             message="Order created successfully.",
@@ -170,7 +192,8 @@ def checkout_order(
 # ──────────────────────────────────────────────
 
 @router.get("/", response_model=OrderListEnvelope)
-def list_orders(user_id: str = Depends(get_current_user_id)):
+def list_orders(user_info: dict = Depends(get_current_user_id)):
+    user_id = user_info["user_id"]
     orders = get_user_orders(user_id)
     return OrderListEnvelope(
         data=[OrderListItemResponse(
@@ -186,8 +209,9 @@ def list_orders(user_id: str = Depends(get_current_user_id)):
 @router.get("/{order_id}", response_model=OrderEnvelope)
 def get_order(
     order_id: UUID,
-    user_id: str = Depends(get_current_user_id),
+    user_info: dict = Depends(get_current_user_id),
 ):
+    user_id = user_info["user_id"]
     try:
         order = get_order_detail(user_id, str(order_id))
         return OrderEnvelope(
