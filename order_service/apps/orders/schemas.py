@@ -46,6 +46,7 @@ class CheckoutRequest(BaseModel):
     shipping_state: str
     shipping_pincode: str
     shipping_phone: str
+    payment_method: Literal["cod", "online"] = "online"
 
     @field_validator("shipping_pincode")
     @classmethod
@@ -165,7 +166,6 @@ class CheckoutRequest(BaseModel):
     shipping_state: str
     shipping_pincode: str
     shipping_phone: str
-    # New field — cod or online
     payment_method: Literal["cod", "online"] = "online"
 
     @field_validator("shipping_pincode")
